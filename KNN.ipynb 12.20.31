@@ -1,0 +1,425 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## K-nearest-neighbor"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 必要なライブラリをインポート"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 83,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#手書き文字のデータセット(mnist)をインポート\n",
+    "from keras.datasets import mnist\n",
+    "import numpy as np\n",
+    "#データプロットのライブラリをインポート\n",
+    "import matplotlib.pyplot as plt\n",
+    "from collections import Counter"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "###  教師データとテストデータの取得"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 84,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#テストデータと教師データのデータとindexを取得\n",
+    "(X_train, y_train), (X_test, y_test) = mnist.load_data()\n",
+    "\n",
+    "X_train = X_train.astype('float32') / 255.\n",
+    "X_test = X_test.astype('float32') / 255.\n",
+    "X_train = np.reshape(X_train, (len(X_train), 28, 28, 1))  # adapt this if using `channels_first` image data format\n",
+    "X_test = np.reshape(X_test, (len(X_test), 28, 28, 1))  # adapt this if using `channels_first` image data format"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### K-nearest-neighborの実装 "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 方針\n",
+    "1,選択したテストデータと教師データ全ての距離を測定\n",
+    "\n",
+    "2,測定して距離を近い順に並び替える\n",
+    "\n",
+    "3,距離が近いものを上位k個選択し、多数決を行い、テストデータの数字を当てる"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 92,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "1\n"
+     ]
+    },
+    {
+     "data": {
+      "image/png": "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\n",
+      "text/plain": [
+       "<matplotlib.figure.Figure at 0x182db51dd8>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "#kの値を入力\n",
+    "K=3\n",
+    "#呼び出すテストデータの番号をランダムに指定\n",
+    "i=np.random.randint(10000)\n",
+    "#x_trainの配列を(28,28)から(1,756)に変換\n",
+    "data = X_test[i].reshape(1,-1)\n",
+    "\n",
+    "#X_trainを(60000,756)に変換\n",
+    "X_train2 = X_train.reshape(X_train.shape[0],-1)\n",
+    "\n",
+    "#全てのデータに対して距離を計算する\n",
+    "#distance = np.sum(np.sqrt(np.square(X_train2-data)),axis=1)\n",
+    "distance = np.linalg.norm(X_train2-data,axis=1)\n",
+    "\n",
+    "#距離が近い順に配列を並び替える\n",
+    "sorted_label = y_train[np.argsort(distance)]\n",
+    "\n",
+    "#距離が近い順にk個調べ多数決をとり、数字を決定する\n",
+    "pred_y = Counter(sorted_label[:K]).most_common()[0][0]\n",
+    "\n",
+    "print(pred_y)\n",
+    "\n",
+    "\n",
+    "#-------------\n",
+    "#元データの可視化\n",
+    "plt.imshow(data.reshape(28,28))\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 補足"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 93,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(10000, 28, 28, 1)"
+      ]
+     },
+     "execution_count": 93,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "X_test.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 90,
+   "metadata": {
+    "scrolled": false
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array([7, 2, 1, ..., 4, 5, 6], dtype=uint8)"
+      ]
+     },
+     "execution_count": 90,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "y_test"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 96,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(60000, 28, 28, 1)"
+      ]
+     },
+     "execution_count": 96,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "X_train.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 89,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array([5, 0, 4, ..., 5, 6, 8], dtype=uint8)"
+      ]
+     },
+     "execution_count": 89,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "y_train"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 87,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(1, 784)"
+      ]
+     },
+     "execution_count": 87,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "data.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 63,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(60000, 784)"
+      ]
+     },
+     "execution_count": 63,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "X_train2.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 51,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(60000, 784)"
+      ]
+     },
+     "execution_count": 51,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "(X_train2-data).shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 97,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(60000,)"
+      ]
+     },
+     "execution_count": 97,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "distance.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 98,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array([ 1.6931779,  2.1075723,  2.14956  , ..., 15.092302 , 15.206288 ,\n",
+       "       15.522598 ], dtype=float32)"
+      ]
+     },
+     "execution_count": 98,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "np.sort(distance)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 99,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array([36997, 53301, 55175, ..., 13650, 41358, 25285])"
+      ]
+     },
+     "execution_count": 99,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#argsortは値が小さい順に、indexを返す\n",
+    "np.argsort(distance)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array([3, 3, 3, ..., 0, 0, 0], dtype=uint8)"
+      ]
+     },
+     "execution_count": 22,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "y_train[np.argsort(distance)]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array([5, 0, 4, ..., 5, 6, 8], dtype=uint8)"
+      ]
+     },
+     "execution_count": 23,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "y_train"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "3"
+      ]
+     },
+     "execution_count": 25,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "Counter(sorted_label[:100]).most_common()[0][0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.4"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
